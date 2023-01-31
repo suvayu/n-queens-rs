@@ -1,12 +1,14 @@
 use std::env;
 use std::fmt;
 
-use good_lp::{
-    constraint, default_solver, variable, Constraint, ProblemVariables, Solution, SolverModel,
-};
 use itertools::join;
 // use rand::{Fill, Rng, SeedableRng};
 // use rand_chacha::ChaCha8Rng;
+
+use good_lp::solvers::coin_cbc::coin_cbc;
+use good_lp::{
+    constraint, default_solver, variable, Constraint, ProblemVariables, Solution, SolverModel,
+};
 
 fn pretty<T: fmt::Display, const X: usize, const Y: usize>(arr: &[[T; X]; Y], prec: usize) {
     for inner in arr.iter() {
@@ -20,8 +22,15 @@ fn pretty<T: fmt::Display, const X: usize, const Y: usize>(arr: &[[T; X]; Y], pr
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    let n: usize = args[1].parse().expect("Bad argument, not a positive integer");
     // let n: usize = 10;
+    let n: usize = args[1].parse().expect("Bad argument, integer !> 0");
+    let mut set_timeout = false;
+    if args.len() > 2 {
+	match args[2].parse::<u16>() {
+	    Ok(timeout) => if timeout > 0 { set_timeout = true; }
+	    Err(error) => println!("Ignoring bad flag, not a bool: {error}")
+	};
+    }
 
     /*
     let mut rng = ChaCha8Rng::seed_from_u64(42);
@@ -79,24 +88,34 @@ fn main() {
 
     let objective = (0..n).map(|i| 1 * vars[i]).reduce(|i, j| i + j).unwrap();
 
-    let mut solver_problem = probvars.maximise(objective).using(default_solver);
+    // let mut solver_problem = probvars.maximise(objective).using(default_solver);
+
+    // let solver = CbcSolver::new().with_max_seconds(0);
+    let mut solver_problem = coin_cbc(probvars.maximise(objective));
+    if set_timeout {
+	solver_problem.set_parameter("seconds", "0");
+    }
+
     // trait: good_lp::SolverModel
     for _ in 0..constraints.len() {
         solver_problem = solver_problem.with(constraints.pop().unwrap());
     }
-    let solution = solver_problem.solve().unwrap();
-
-    // trait: good_lp::Solution
-    if n <= 10 {
-        for i in 0..n {
-            println!(
-                "{:?}",
-                vars[i * n..]
-                    .into_iter()
-                    .take(n)
-                    .map(|v| if solution.value(*v) > 0.1 { 1 } else { 0 })
-                    .collect::<Vec<u16>>()
-            );
+    match solver_problem.solve() {
+        Ok(solution) => {
+            if n <= 10 {
+                for i in 0..n {
+                    // trait: good_lp::Solution
+                    println!(
+                        "{:?}",
+                        vars[i * n..]
+                            .into_iter()
+                            .take(n)
+                            .map(|v| if solution.value(*v) > 0.1 { 1 } else { 0 })
+                            .collect::<Vec<u16>>()
+                    );
+                }
+            }
         }
-    }
+        Err(error) => println!("Exiting prematurely: {error:?}"),
+    };
 }
